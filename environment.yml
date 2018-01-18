@@ -8,5 +8,5 @@ dependencies:
   - scipy
   - tqdm
   - pip
-  pip:
+  - pip:
     - abpytools
