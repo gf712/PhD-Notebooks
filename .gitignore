@@ -1,7 +1,10 @@
 .idea/
+SASA/
 models/
 *.gz
 .ipynb_checkpoints
 *.tex
 *.html
 *.fastq
+*.csv
+*.h5
