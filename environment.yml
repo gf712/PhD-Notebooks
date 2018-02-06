@@ -1,0 +1,12 @@
+dependencies:
+  - matplotlib
+  - numpy
+  - scikit-learn
+  - seaborn
+  - pandas
+  - mdtraj
+  - scipy
+  - tqdm
+  - pip
+  - pip:
+    - abpytools
