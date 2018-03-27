@@ -164,7 +164,7 @@ def worker(ca_dists, completed, name=None, file=None):
         # this is just for sanity checks
         # creates an empty file with the same name as the file
         # being processed
-        output = subprocess.check_output(['touch', file])
+        output = subprocess.check_output(['touch', './Data/{}'.format(PDB_id)])
 
     try:
         ca_dists[PDB_id] = calculate_ca_distance(file, threshold=0.4)
@@ -172,7 +172,7 @@ def worker(ca_dists, completed, name=None, file=None):
         print("Status : FAIL", e.error)
 
     # clean up when done
-    subprocess.check_output(['rm', file])
+    subprocess.check_output(['rm', './Data/{}'.format(PDB_id)])
 
     sys.stdout.flush()
 
@@ -259,19 +259,17 @@ def main(threshold, directory=None, strategy = '2*jobs', n_jobs = -1):
         with open('./author.idx', 'r') as f:
             ids = [pattern.findall(x) for x in f.readlines()]
 
-        print('Preparing to process {} PDB(s).'.format(len(ids)))
-
     else:
-        files = glob(directory)
-        print('Preparing to process {} PDB(s).'.format(len(files)))
+        ids = glob(directory)
 
-    if n_jobs == -1:
+    print('Preparing to process {} PDB(s).'.format(len(ids)))
+
+    if n_jobs < 0:
         # use all cpus
         import psutil
-        n_jobs = psutil.cpu_count()
-    elif n_jobs < -1:
-        raise ValueError("Invalid value for n_jobs.")
-
+        n_jobs = psutil.cpu_count() + n_jobs + 1
+    #elif n_jobs < -1:
+    #    raise ValueError("Invalid value for n_jobs.")
     manager = Manager()
     ca_dist = manager.dict()
     completed = manager.Value('i', 0)
@@ -281,35 +279,23 @@ def main(threshold, directory=None, strategy = '2*jobs', n_jobs = -1):
         print('Spawning processes...')
 
         if strategy == 'individual':
-
-            # Create processes
-            if directory is None:
-                # using PDBs downloaded from rcsb
-                futures = {executor.submit(worker, ca_dist, completed, PDB_id, None) for PDB_id in ids}
-            else:
-                # using local PDB files
-                futures = {executor.submit(worker, ca_dist, completed, None, PDB_id) for PDB_id in ids}
-
+            jobs = split_list(ids, len(ids))
         elif strategy == '2*jobs':
-            # creates 2*jobs processes
             jobs = split_list(ids, n_jobs*2)
 
-            # Create processes
-            if directory is None:
-                # using PDBs downloaded from rcsb
-                futures = {executor.submit(worker_group, ca_dist, completed, j, None) for j in jobs}
-            else:
-                # using local PDB files
-                futures = {executor.submit(worker_group, ca_dist, completed, None, j) for j in jobs}
+        # Create processes
+        if directory is None:
+            # using PDBs downloaded from rcsb
+            futures = {executor.submit(worker_group, ca_dist, completed, j, None) for j in jobs}
+        else:
+            # using local PDB files
+            futures = {executor.submit(worker_group, ca_dist, completed, None, j) for j in jobs}
 
         print('Spawned {} processes'.format(len(futures)))
-        print(completed.value)
 
         pbar = tqdm(total=len(ids))
         while completed.value < len(ids):
             pbar.update(completed.value - pbar.n)
-
-        print(ca_dist)
 
     with open('salt_bridge_result.json', 'w') as fp:
         json.dump(ca_dist.copy(), fp)
@@ -320,6 +306,6 @@ if __name__ == '__main__':
     # disable warnings
     warnings.simplefilter("ignore")
 
-    main(0.5, None)
+    main(0.4, '/acrm/data/pdb/*.ent', n_jobs=-5)
 
     print('DONE!')
