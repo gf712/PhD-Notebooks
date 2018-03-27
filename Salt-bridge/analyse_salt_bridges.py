@@ -51,23 +51,41 @@ def calculate_ca_distance(file, threshold=0.4):
             warnings.warn("Error opening {}".format(file))
             return list()
 
-        # extract atoms that can form salt bridges
-        lys = pdb.top.select('resname LYS and name NZ')
-        arg = pdb.top.select('resname ARG and name NH1')
-        asp = pdb.top.select('resname ASP and name OD1')
-        glu = pdb.top.select('resname GLU and name OE1')
-
-        # extract CA atoms of residues that have atoms that can form salt bridges
-        lys_ca = pdb.top.select('resname LYS and name CA')
-        arg_ca = pdb.top.select('resname ARG and name CA')
-        asp_ca = pdb.top.select('resname ASP and name CA')
-        glu_ca = pdb.top.select('resname GLU and name CA')
+        # extract atoms from residues that can form salt bridges
+        lys_atoms = [pdb.top.atom(x).residue.atoms for x in pdb.top.select('resname LYS and name CA')]
+        arg_atoms = [pdb.top.atom(x).residue.atoms for x in pdb.top.select('resname ARG and name CA')]
+        asp_atoms = [pdb.top.atom(x).residue.atoms for x in pdb.top.select('resname ASP and name CA')]
+        glu_atoms = [pdb.top.atom(x).residue.atoms for x in pdb.top.select('resname GLU and name CA')]
+        
+        # filter list by atoms of interest -> C_alpha and charged atoms
+        lys = [list(filter(lambda x: x.name == 'CA' or x.name == 'NZ' , t))  for t in lys_atoms]
+        arg = [list(filter(lambda x: x.name == 'CA' or x.name == 'NH1' , t)) for t in arg_atoms]
+        asp = [list(filter(lambda x: x.name == 'CA' or x.name == 'OD1' , t)) for t in asp_atoms]
+        glu = [list(filter(lambda x: x.name == 'CA' or x.name == 'OE1' , t)) for t in glu_atoms]
+        
+        # filter list of atoms to ensure that we always have a pair -> C_alpha, charged atom
+        # if not this will introduce noise to the processed data
+        lys_result = list(filter(lambda x: len(x) == 2, lys))
+        arg_result = list(filter(lambda x: len(x) == 2, arg))
+        asp_result = list(filter(lambda x: len(x) == 2, asp))
+        glu_result = list(filter(lambda x: len(x) == 2, glu))
+        
+        # extract CA and charged atoms of residues that have atoms that can form salt bridges
+        lys_ca = [[atom.index for atom in res if atom.name == 'CA'][0] for res in lys_result]
+        arg_ca = [[atom.index for atom in res if atom.name == 'CA'][0] for res in arg_result]
+        asp_ca = [[atom.index for atom in res if atom.name == 'CA'][0] for res in asp_result]
+        glu_ca = [[atom.index for atom in res if atom.name == 'CA'][0] for res in glu_result]
+        
+        lys_charged = [[atom.index for atom in res if atom.name == 'NZ'][0]  for res in lys_result]
+        arg_charged = [[atom.index for atom in res if atom.name == 'NH1'][0] for res in arg_result]
+        asp_charged = [[atom.index for atom in res if atom.name == 'OD1'][0] for res in asp_result]
+        glu_charged = [[atom.index for atom in res if atom.name == 'OE1'][0] for res in glu_result]
 
         # extract coordinates of relevant atoms
         traj = pdb.xyz[0]
 
-        pos = np.concatenate((lys, arg)).astype(int) # enforce int type
-        neg = np.concatenate((asp, glu)).astype(int)
+        pos = np.concatenate((lys_charged, arg_charged)).astype(int) # enforce int type
+        neg = np.concatenate((asp_charged, glu_charged)).astype(int)
 
         pos_ca = np.concatenate((lys_ca, arg_ca)).astype(int)
         neg_ca = np.concatenate((asp_ca, glu_ca)).astype(int)
@@ -99,7 +117,6 @@ def calculate_ca_distance(file, threshold=0.4):
 
     except:
         raise ValueError("Error with file: {}".format(file))
-
 
 
 def worker(ca_dists, completed, name=None, file=None):
