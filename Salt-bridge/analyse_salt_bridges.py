@@ -119,7 +119,7 @@ def calculate_ca_distance(file, threshold=0.4):
         raise ValueError("Error with file: {}".format(file))
 
 
-def worker(ca_dists, completed, name=None, file=None):
+def worker(ca_dists, completed, name=None, file=None, lock=None):
     """
     Worker that executes all the steps required to obtain
     the C_alpha distances.
@@ -134,8 +134,6 @@ def worker(ca_dists, completed, name=None, file=None):
     Returns:
         Nothing.
     """
-
-
     if file is not None and name is None:
         # use local pdb copy and use name as dict key
         PDB_id = file.split('/')[-1].split('.')[0]
@@ -146,7 +144,8 @@ def worker(ca_dists, completed, name=None, file=None):
 
         else:
             #  skip
-            completed.value += 1
+            with lock:
+                completed.value += 1
             return
 
     # download PDB if it is not a local file
@@ -175,11 +174,11 @@ def worker(ca_dists, completed, name=None, file=None):
     subprocess.check_output(['rm', './Data/{}'.format(PDB_id)])
 
     sys.stdout.flush()
+    with lock:
+        completed.value += 1
 
-    completed.value += 1
 
-
-def worker_group(ca_dists, completed, names=None, files=None):
+def worker_group(ca_dists, completed, names=None, files=None, lock=None):
 
     """
     Groups up work, so that one process can perform more
@@ -188,10 +187,10 @@ def worker_group(ca_dists, completed, names=None, files=None):
 
     if names is not None:
         for name in names:
-            worker(ca_dists, completed, name=name)
+            worker(ca_dists, completed, name=name, lock=lock)
     if files is not None:
         for file in files:
-            worker(ca_dists, completed, file=file)
+            worker(ca_dists, completed, file=file, lock=lock)
 
 
 def split_list(a, n=4):
@@ -238,7 +237,6 @@ def main(threshold, directory=None, strategy = '2*jobs', n_jobs = -1):
         strategy (str): how to dispatch the jobs
         n_jobs (int): number of processes to use
     """
-
     if directory is None:
 
         print('Retrieving PDB IDs.')
@@ -261,7 +259,7 @@ def main(threshold, directory=None, strategy = '2*jobs', n_jobs = -1):
 
     else:
         ids = glob(directory)
-
+    
     print('Preparing to process {} PDB(s).'.format(len(ids)))
 
     if n_jobs < 0:
@@ -273,7 +271,7 @@ def main(threshold, directory=None, strategy = '2*jobs', n_jobs = -1):
     manager = Manager()
     ca_dist = manager.dict()
     completed = manager.Value('i', 0)
-
+    lock = manager.Lock()
     with ProcessPoolExecutor(max_workers=n_jobs) as executor:
 
         print('Spawning processes...')
@@ -286,17 +284,18 @@ def main(threshold, directory=None, strategy = '2*jobs', n_jobs = -1):
         # Create processes
         if directory is None:
             # using PDBs downloaded from rcsb
-            futures = {executor.submit(worker_group, ca_dist, completed, j, None) for j in jobs}
+            futures = {executor.submit(worker_group, ca_dist, completed, j, None, lock) for j in jobs}
         else:
             # using local PDB files
-            futures = {executor.submit(worker_group, ca_dist, completed, None, j) for j in jobs}
+            futures = {executor.submit(worker_group, ca_dist, completed, None, j, lock) for j in jobs}
 
         print('Spawned {} processes'.format(len(futures)))
 
         pbar = tqdm(total=len(ids))
         while completed.value < len(ids):
-            pbar.update(completed.value - pbar.n)
-
+            delta = completed.value - pbar.n
+            pbar.update(delta)
+            
     with open('salt_bridge_result.json', 'w') as fp:
         json.dump(ca_dist.copy(), fp)
 
